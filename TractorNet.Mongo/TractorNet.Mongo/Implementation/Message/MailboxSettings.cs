@@ -16,7 +16,7 @@ namespace TractorNet.Mongo.Implementation.Message
 
         public IBsonSerializer<byte[]> PayloadSerializer { get; set; }
 
-        public TimeSpan? ReadTrottleTime { get; set; }
+        public TimeSpan? ReadTrottleTime { get; set; } = TimeSpan.FromMilliseconds(1);
 
         public TimeSpan? MessageProcessingTimeout { get; set; }
     }
