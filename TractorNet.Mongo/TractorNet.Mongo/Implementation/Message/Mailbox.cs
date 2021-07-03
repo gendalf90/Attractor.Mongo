@@ -109,7 +109,7 @@ namespace TractorNet.Mongo.Implementation.Message
                 var addressMaps = new List<BsonMemberMap>
                 {
                     map.MapProperty(record => record.To),
-                    map.MapProperty(record => record.From)
+                    map.MapProperty(record => record.From).SetIgnoreIfNull(true)
                 };
 
                 if (settings.AddressSerializer != null)

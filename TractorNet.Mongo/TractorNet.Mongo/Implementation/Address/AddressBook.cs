@@ -25,7 +25,7 @@ namespace TractorNet.Mongo.Implementation.Address
 
             var result = await collection.UpdateOneAsync(filter, update, options, token);
 
-            return result.ModifiedCount == 0
+            return result.MatchedCount == 0
                 ? new TrueResult<IAsyncDisposable>(new AddressRegistrationDisposable(this, result))
                 : new FalseResult<IAsyncDisposable>();
         }
