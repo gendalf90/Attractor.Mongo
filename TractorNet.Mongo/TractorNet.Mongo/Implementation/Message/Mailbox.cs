@@ -1,6 +1,4 @@
 ﻿using Microsoft.Extensions.Options;
-using MongoDB.Bson.Serialization;
-using MongoDB.Bson.Serialization.IdGenerators;
 using MongoDB.Driver;
 using System;
 using System.Collections.Concurrent;
@@ -32,7 +30,8 @@ namespace TractorNet.Mongo.Implementation.Message
                     : DateTime.MaxValue;
                 var filter = Builders<MessageRecord>.Filter.And(
                     Builders<MessageRecord>.Filter.Lte(record => record.AvailableAt, DateTime.UtcNow),
-                    Builders<MessageRecord>.Filter.Lte(record => record.UnlockedAt, DateTime.UtcNow));
+                    Builders<MessageRecord>.Filter.Lte(record => record.UnlockedAt, DateTime.UtcNow),
+                    Builders<MessageRecord>.Filter.Gt(record => record.ExpireAt, DateTime.UtcNow));
                 var update = Builders<MessageRecord>.Update.Set(record => record.UnlockedAt, unlockTime);
                 var findOptions = new FindOneAndUpdateOptions<MessageRecord, MessageRecord> { ReturnDocument = ReturnDocument.After };
                 var trottleTask = options.Value.ReadTrottleTime.HasValue
@@ -66,26 +65,21 @@ namespace TractorNet.Mongo.Implementation.Message
 
         public ValueTask SendMessageAsync(IAddress address, IPayload payload, SendingMetadata metadata = null, CancellationToken token = default)
         {
-            var record = new MessageRecord
-            {
-                To = address.GetBytes().ToArray(),
-                Payload = payload.GetBytes().ToArray()
-            };
-
-            return SendAsync(record, metadata, token);
+            return SendAsync(
+                to: address.GetBytes().ToArray(),
+                payload: payload.GetBytes().ToArray(),
+                metadata: metadata,
+                token: token);
         }
 
-        private async ValueTask SendAsync(MessageRecord record, SendingMetadata metadata, CancellationToken token)
+        private async ValueTask SendAsync(byte[] to, byte[] payload, byte[] from = null, SendingMetadata metadata = null, CancellationToken token = default)
         {
-            if (record.To == null)
+            var record = new MessageRecord
             {
-                throw new ArgumentNullException(nameof(record.To));
-            }
-
-            if (record.Payload == null)
-            {
-                throw new ArgumentNullException(nameof(record.Payload));
-            }
+                To = to ?? throw new ArgumentNullException(nameof(to)),
+                Payload = payload ?? throw new ArgumentNullException(nameof(payload)),
+                From = from
+            };
 
             if (metadata?.Delay != null)
             {
@@ -96,39 +90,16 @@ namespace TractorNet.Mongo.Implementation.Message
             {
                 record.ExpireAt = DateTime.UtcNow + metadata.Ttl.Value;
             }
+            else
+            {
+                record.ExpireAt = DateTime.MaxValue;
+            }
 
             await collection.InsertOneAsync(record, null, token);
         }
 
         private IMongoCollection<MessageRecord> InitializeCollection(MailboxSettings settings)
         {
-            BsonClassMap.RegisterClassMap<MessageRecord>(map =>
-            {
-                map.MapIdProperty(record => record.Id).SetIdGenerator(ObjectIdGenerator.Instance);
-
-                var addressMaps = new List<BsonMemberMap>
-                {
-                    map.MapProperty(record => record.To),
-                    map.MapProperty(record => record.From).SetIgnoreIfNull(true)
-                };
-
-                if (settings.AddressSerializer != null)
-                {
-                    addressMaps.ForEach(addressMap => addressMap.SetSerializer(settings.AddressSerializer));
-                }
-
-                var payloadMap = map.MapProperty(record => record.Payload);
-
-                if (settings.PayloadSerializer != null)
-                {
-                    payloadMap.SetSerializer(settings.PayloadSerializer);
-                }
-
-                map.MapProperty(record => record.ExpireAt);
-                map.MapProperty(record => record.AvailableAt);
-                map.MapProperty(record => record.UnlockedAt);
-            });
-
             var indexBuilder = Builders<MessageRecord>.IndexKeys;
             var collection = new MongoClient(settings.ClientSettings)
                 .GetDatabase(settings.DatabaseName)
@@ -143,9 +114,14 @@ namespace TractorNet.Mongo.Implementation.Message
                 }));
 
             collection.Indexes.CreateOne(new CreateIndexModel<MessageRecord>(
-                indexBuilder.Combine(
-                    indexBuilder.Ascending(record => record.AvailableAt),
-                    indexBuilder.Ascending(record => record.UnlockedAt)),
+                indexBuilder.Ascending(record => record.AvailableAt),
+                new CreateIndexOptions
+                {
+                    Background = true
+                }));
+
+            collection.Indexes.CreateOne(new CreateIndexModel<MessageRecord>(
+                indexBuilder.Ascending(record => record.UnlockedAt),
                 new CreateIndexOptions
                 {
                     Background = true
@@ -217,26 +193,22 @@ namespace TractorNet.Mongo.Implementation.Message
 
             public ValueTask SendMessageAsync(IAddress address, IPayload payload, SendingMetadata metadata = null, CancellationToken token = default)
             {
-                var record = new MessageRecord
-                {
-                    To = address.GetBytes().ToArray(),
-                    Payload = payload.GetBytes().ToArray(),
-                    From = messageRecord.To
-                };
-
-                return mailbox.SendAsync(record, metadata, token);
+                return mailbox.SendAsync(
+                    to: address.GetBytes().ToArray(),
+                    payload: payload.GetBytes().ToArray(),
+                    from: messageRecord.To,
+                    metadata: metadata,
+                    token: token);
             }
 
             public ValueTask SendMessageAsync(IPayload payload, SendingMetadata metadata = null, CancellationToken token = default)
             {
-                var record = new MessageRecord
-                {
-                    To = messageRecord.To,
-                    Payload = payload.GetBytes().ToArray(),
-                    From = messageRecord.To
-                };
-
-                return mailbox.SendAsync(record, metadata, token);
+                return mailbox.SendAsync(
+                    to: messageRecord.To,
+                    payload: payload.GetBytes().ToArray(),
+                    from: messageRecord.To,
+                    metadata: metadata,
+                    token: token);
             }
         }
 
@@ -258,14 +230,12 @@ namespace TractorNet.Mongo.Implementation.Message
 
             public ValueTask SendMessageAsync(IPayload payload, SendingMetadata metadata = null, CancellationToken token = default)
             {
-                var record = new MessageRecord
-                {
-                    To = messageRecord.From,
-                    Payload = payload.GetBytes().ToArray(),
-                    From = messageRecord.To
-                };
-
-                return mailbox.SendAsync(record, metadata, token);
+                return mailbox.SendAsync(
+                    to: messageRecord.From,
+                    payload: payload.GetBytes().ToArray(),
+                    from: messageRecord.To,
+                    metadata: metadata,
+                    token: token);
             }
         }
 

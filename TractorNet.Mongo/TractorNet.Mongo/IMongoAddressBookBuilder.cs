@@ -1,5 +1,4 @@
-﻿using MongoDB.Bson.Serialization;
-using System;
+﻿using System;
 
 namespace TractorNet.Mongo
 {
@@ -10,7 +9,5 @@ namespace TractorNet.Mongo
         void UseCollectionName(string name);
 
         void UseAddressUsingTimeout(TimeSpan time);
-
-        void UseAddressSerializer(IBsonSerializer<byte[]> serializer);
     }
 }

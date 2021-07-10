@@ -37,10 +37,6 @@ namespace TractorNet.Mongo.Tests.UseCases
 
                         // "addressBook" by default
                         builder.UseCollectionName("testAddresses");
-
-                        // needed for serializing bytes of the address to string
-                        // so the type of the field in mongo will be the serializer returns (by default the type is binData)
-                        builder.UseAddressSerializer(new TestStringSerializer());
                     });
                     services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString), builder =>
                     {
@@ -49,9 +45,6 @@ namespace TractorNet.Mongo.Tests.UseCases
 
                         // "mailbox" by default
                         builder.UseCollectionName("testMessages");
-
-                        builder.UseAddressSerializer(new TestStringSerializer());
-                        builder.UsePayloadSerializer(new TestStringSerializer());
                     });
                 })
                 .Build();

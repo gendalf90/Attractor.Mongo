@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 using System;
 using TractorNet.Mongo.Implementation.Address;
@@ -52,19 +51,6 @@ namespace TractorNet.Mongo.Implementation.Factory
             });
         }
 
-        void IMongoAddressBookBuilder.UseAddressSerializer(IBsonSerializer<byte[]> serializer)
-        {
-            if (serializer == null)
-            {
-                throw new ArgumentException(nameof(serializer));
-            }
-
-            services.Configure<AddressBookSettings>(settings =>
-            {
-                settings.AddressSerializer = serializer;
-            });
-        }
-
         void IMongoMailboxBuilder.UseDatabaseName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -88,32 +74,6 @@ namespace TractorNet.Mongo.Implementation.Factory
             services.Configure<MailboxSettings>(settings =>
             {
                 settings.CollectionName = name;
-            });
-        }
-
-        void IMongoMailboxBuilder.UseAddressSerializer(IBsonSerializer<byte[]> serializer)
-        {
-            if (serializer == null)
-            {
-                throw new ArgumentException(nameof(serializer));
-            }
-
-            services.Configure<MailboxSettings>(settings =>
-            {
-                settings.AddressSerializer = serializer;
-            });
-        }
-
-        void IMongoMailboxBuilder.UsePayloadSerializer(IBsonSerializer<byte[]> serializer)
-        {
-            if (serializer == null)
-            {
-                throw new ArgumentException(nameof(serializer));
-            }
-
-            services.Configure<MailboxSettings>(settings =>
-            {
-                settings.PayloadSerializer = serializer;
             });
         }
 
