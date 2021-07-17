@@ -64,8 +64,6 @@ namespace TractorNet.Mongo.Implementation.Message
 
             if (readBatchSize == DefaultMessageReadingBatchSize)
             {
-                var findOptions = new FindOneAndUpdateOptions<MessageRecord, MessageRecord> { ReturnDocument = ReturnDocument.After };
-
                 var record = await collection.FindOneAndUpdateAsync(lockFilter, lockUpdate, new FindOneAndUpdateOptions<MessageRecord>
                 {
                     ReturnDocument = ReturnDocument.After
