@@ -13,8 +13,10 @@ namespace TractorNet.Mongo.Tests.UseCases
     {
         private const int MaxRunningNumberForTheSameAddress = 1;
 
-        [Fact]
-        public async Task RunWithRunningNumberChecking()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task RunWithRunningNumberChecking(bool useBatchOfMessagesRequesting)
         {
             // Arrange
             var testAddress = TestBytesBuffer.Generate();
@@ -42,7 +44,13 @@ namespace TractorNet.Mongo.Tests.UseCases
                         actorBuilder.UseAddressPolicy(_ => testAddress);
                     });
                     services.UseMongoAddressBook(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
-                    services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
+                    services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString), configuration =>
+                    {
+                        if (useBatchOfMessagesRequesting)
+                        {
+                            configuration.UseReadBatchSize(5);
+                        }
+                    });
                 })
                 .Build();
 
@@ -65,8 +73,10 @@ namespace TractorNet.Mongo.Tests.UseCases
             await host.StopAsync();
         }
 
-        [Fact]
-        public async Task RunWithDelayingMessage()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task RunWithDelayingMessage(bool useBatchOfMessagesRequesting)
         {
             // Arrange
             var testAddress = TestBytesBuffer.Generate();
@@ -88,7 +98,13 @@ namespace TractorNet.Mongo.Tests.UseCases
                         actorBuilder.UseAddressPolicy(_ => testAddress);
                     });
                     services.UseMongoAddressBook(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
-                    services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
+                    services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString), configuration =>
+                    {
+                        if (useBatchOfMessagesRequesting)
+                        {
+                            configuration.UseReadBatchSize(5);
+                        }
+                    });
                 })
                 .Build();
 
@@ -112,8 +128,10 @@ namespace TractorNet.Mongo.Tests.UseCases
             Assert.True(timeOfReceiving - timeOfSending >= TimeSpan.FromSeconds(1));
         }
 
-        [Fact]
-        public async Task RunWithExpiringMessage()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task RunWithExpiringMessage(bool useBatchOfMessagesRequesting)
         {
             // Arrange
             var testAddress = TestBytesBuffer.Generate();
@@ -134,7 +152,13 @@ namespace TractorNet.Mongo.Tests.UseCases
                         actorBuilder.UseAddressPolicy(_ => testAddress);
                     });
                     services.UseMongoAddressBook(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
-                    services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
+                    services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString), configuration =>
+                    {
+                        if (useBatchOfMessagesRequesting)
+                        {
+                            configuration.UseReadBatchSize(5);
+                        }
+                    });
                 })
                 .Build();
 
