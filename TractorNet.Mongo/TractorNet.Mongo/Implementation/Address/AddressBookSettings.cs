@@ -9,8 +9,8 @@ namespace TractorNet.Mongo.Implementation.Address
 
         public TimeSpan? AddressUsingTimeout { get; set; }
 
-        public string DatabaseName { get; set; } = "tractor";
+        public string DatabaseName { get; set; }
 
-        public string CollectionName { get; set; } = "addressBook";
+        public string CollectionName { get; set; }
     }
 }

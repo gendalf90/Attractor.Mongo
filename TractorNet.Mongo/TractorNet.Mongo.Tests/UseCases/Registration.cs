@@ -14,21 +14,22 @@ namespace TractorNet.Mongo.Tests.UseCases
         public async Task Run()
         {
             // Arrange
+            var testAddress = TestBytesBuffer.Generate();
             var resultChannel = Channel.CreateUnbounded<IMessage>();
 
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractor();
+                    services.AddTractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         var feature = context.Metadata.GetFeature<IReceivedMessageFeature>();
 
-                        await resultChannel.Writer.WriteAsync(feature, token);
-                        await feature.ConsumeAsync(token);
+                        await resultChannel.Writer.WriteAsync(feature);
+                        await feature.ConsumeAsync();
                     }, actorBuilder =>
                     {
-                        actorBuilder.UseAddressPolicy(_ => TestBytesBuffer.CreateString("address"));
+                        actorBuilder.UseAddressPolicy(_ => testAddress);
                     });
                     services.UseMongoAddressBook(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString), builder =>
                     {
@@ -58,7 +59,7 @@ namespace TractorNet.Mongo.Tests.UseCases
 
             for (int i = 0; i < 3; i++)
             {
-                await outbox.SendMessageAsync(TestBytesBuffer.CreateString("address"), TestBytesBuffer.CreateString($"payload {i}"));
+                await outbox.SendMessageAsync(testAddress, TestBytesBuffer.CreateString($"payload {i}"));
 
                 resultsMessages.Add(await resultChannel.Reader.ReadAsync());
             }
@@ -66,9 +67,9 @@ namespace TractorNet.Mongo.Tests.UseCases
             await host.StopAsync();
 
             // Assert
-            Assert.All<IAddress>(resultsMessages, address =>
+            Assert.All<IAddress>(resultsMessages, resultAddress =>
             {
-                Assert.True(TestBytesBuffer.CreateAddress(address).IsString("address"));
+                Assert.True(testAddress.IsAddress(resultAddress));
             });
             Assert.Contains<IPayload>(resultsMessages, payload => TestBytesBuffer.CreatePayload(payload).IsString("payload 0"));
             Assert.Contains<IPayload>(resultsMessages, payload => TestBytesBuffer.CreatePayload(payload).IsString("payload 1"));

@@ -21,5 +21,7 @@ namespace TractorNet.Mongo.Implementation.Message
         public DateTime AvailableAt { get; set; }
 
         public DateTime UnlockedAt { get; set; }
+
+        public Guid LockToken { get; set; }
     }
 }

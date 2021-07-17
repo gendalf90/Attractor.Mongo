@@ -22,12 +22,17 @@ namespace TractorNet.Mongo.Tests
 
         public ValueTask<bool> IsMatchAsync(IAddress address, CancellationToken token = default)
         {
-            return ValueTask.FromResult(bytes.Span.SequenceEqual(address.GetBytes().Span));
+            return ValueTask.FromResult(IsAddress(address));
+        }
+
+        public bool IsAddress(IAddress address)
+        {
+            return bytes.Span.SequenceEqual(address.GetBytes().Span);
         }
 
         public bool IsString(string str)
         {
-            return Encoding.UTF8.GetBytes(str).AsSpan().SequenceEqual(bytes.Span);
+            return Encoding.UTF8.GetString(bytes.Span) == str;
         }
 
         public static TestBytesBuffer Create(params byte[] bytes)
@@ -48,6 +53,21 @@ namespace TractorNet.Mongo.Tests
         public static TestBytesBuffer CreateString(string str)
         {
             return new TestBytesBuffer(Encoding.UTF8.GetBytes(str));
+        }
+
+        public static string GetString(IAddress address)
+        {
+            return Encoding.UTF8.GetString(address.GetBytes().Span);
+        }
+
+        public static string GetString(IPayload payload)
+        {
+            return Encoding.UTF8.GetString(payload.GetBytes().Span);
+        }
+
+        public static TestBytesBuffer Generate()
+        {
+            return new TestBytesBuffer(Guid.NewGuid().ToByteArray());
         }
     }
 }

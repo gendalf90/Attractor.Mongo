@@ -5,8 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MongoDB.Driver" Version="2.13.0-beta1" />
-    <PackageReference Include="TractorNet" Version="1.0.0-alpha.3" />
+    <PackageReference Include="MongoDB.Driver" Version="2.13.0" />
+    <PackageReference Include="TractorNet" Version="1.0.0-alpha.6" />
   </ItemGroup>
 
 </Project>

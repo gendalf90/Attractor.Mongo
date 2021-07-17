@@ -7,12 +7,14 @@ namespace TractorNet.Mongo.Implementation.Message
     {
         public MongoClientSettings ClientSettings { get; set; }
 
-        public string DatabaseName { get; set; } = "tractor";
+        public string DatabaseName { get; set; }
 
-        public string CollectionName { get; set; } = "mailbox";
+        public string CollectionName { get; set; }
 
-        public TimeSpan? ReadTrottleTime { get; set; } = TimeSpan.FromMilliseconds(1);
+        public TimeSpan? ReadTrottleTime { get; set; }
 
         public TimeSpan? MessageProcessingTimeout { get; set; }
+
+        public int? MessagesReadingBatchSize { get; set; }
     }
 }

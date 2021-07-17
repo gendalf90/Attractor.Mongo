@@ -93,6 +93,19 @@ namespace TractorNet.Mongo.Implementation.Factory
             });
         }
 
+        void IMongoMailboxBuilder.UseReadBatchSize(int size)
+        {
+            if (size <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(size));
+            }
+
+            services.Configure<MailboxSettings>(settings =>
+            {
+                settings.MessagesReadingBatchSize = size;
+            });
+        }
+
         public void BuildAddressBook()
         {
             services.Configure<AddressBookSettings>(settings =>
@@ -100,10 +113,7 @@ namespace TractorNet.Mongo.Implementation.Factory
                 settings.ClientSettings = mongoClientSettings;
             });
 
-            services.AddSingleton<AddressBook>();
-            services.AddSingleton<IAddressBook>(provider => provider.GetRequiredService<AddressBook>());
-            services.AddSingleton<IMongoAddressRegistration>(provider => provider.GetRequiredService<AddressBook>());
-            services.UseDecorator<AddressFeatureDecorator>();
+            services.AddSingleton<IAddressBook, AddressBook>();
         }
 
         public void BuildMailbox()

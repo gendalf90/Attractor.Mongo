@@ -17,13 +17,14 @@ namespace TractorNet.Mongo.Tests.UseCases
         public async Task RunWithRunningNumberChecking()
         {
             // Arrange
+            var testAddress = TestBytesBuffer.Generate();
             var currentRunningNumber = 0;
             var resultChannel = Channel.CreateUnbounded<int>();
 
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractor();
+                    services.AddTractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         await resultChannel.Writer.WriteAsync(Interlocked.Increment(ref currentRunningNumber));
@@ -38,7 +39,7 @@ namespace TractorNet.Mongo.Tests.UseCases
                         Interlocked.Decrement(ref currentRunningNumber);
                     }, actorBuilder =>
                     {
-                        actorBuilder.UseAddressPolicy(_ => TestBytesBuffer.Create(1, 2, 3));
+                        actorBuilder.UseAddressPolicy(_ => testAddress);
                     });
                     services.UseMongoAddressBook(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
                     services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
@@ -52,7 +53,7 @@ namespace TractorNet.Mongo.Tests.UseCases
 
             for (int i = 0; i < 10; i++)
             {
-                await outbox.SendMessageAsync(TestBytesBuffer.Create(1, 2, 3), TestBytesBuffer.Create());
+                await outbox.SendMessageAsync(testAddress, TestBytesBuffer.Create());
             }
 
             // Assert
@@ -68,22 +69,23 @@ namespace TractorNet.Mongo.Tests.UseCases
         public async Task RunWithDelayingMessage()
         {
             // Arrange
+            var testAddress = TestBytesBuffer.Generate();
             var resultsChannel = Channel.CreateUnbounded<DateTime>();
 
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractor();
+                    services.AddTractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
-                        await resultsChannel.Writer.WriteAsync(DateTime.UtcNow, token);
+                        await resultsChannel.Writer.WriteAsync(DateTime.UtcNow);
                         await context
                             .Metadata
                             .GetFeature<IReceivedMessageFeature>()
-                            .ConsumeAsync(token);
+                            .ConsumeAsync();
                     }, actorBuilder =>
                     {
-                        actorBuilder.UseAddressPolicy(_ => TestBytesBuffer.Create(1, 2, 3));
+                        actorBuilder.UseAddressPolicy(_ => testAddress);
                     });
                     services.UseMongoAddressBook(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
                     services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
@@ -97,7 +99,7 @@ namespace TractorNet.Mongo.Tests.UseCases
 
             var timeOfSending = DateTime.UtcNow;
 
-            await outbox.SendMessageAsync(TestBytesBuffer.Create(1, 2, 3), TestBytesBuffer.Create(), new SendingMetadata
+            await outbox.SendMessageAsync(testAddress, TestBytesBuffer.Create(), new SendingMetadata
             {
                 Delay = TimeSpan.FromSeconds(1)
             });
@@ -114,21 +116,22 @@ namespace TractorNet.Mongo.Tests.UseCases
         public async Task RunWithExpiringMessage()
         {
             // Arrange
+            var testAddress = TestBytesBuffer.Generate();
             var resultsChannel = Channel.CreateUnbounded<IMessage>();
 
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractor();
+                    services.AddTractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         var feature = context.Metadata.GetFeature<IReceivedMessageFeature>();
 
-                        await resultsChannel.Writer.WriteAsync(feature, token);
-                        await feature.ConsumeAsync(token);
+                        await resultsChannel.Writer.WriteAsync(feature);
+                        await feature.ConsumeAsync();
                     }, actorBuilder =>
                     {
-                        actorBuilder.UseAddressPolicy(_ => TestBytesBuffer.Create(1, 2, 3));
+                        actorBuilder.UseAddressPolicy(_ => testAddress);
                     });
                     services.UseMongoAddressBook(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
                     services.UseMongoMailbox(MongoClientSettings.FromConnectionString(TestMongoServer.ConnectionString));
@@ -140,7 +143,7 @@ namespace TractorNet.Mongo.Tests.UseCases
 
             var outbox = host.Services.GetRequiredService<IAnonymousOutbox>();
 
-            await outbox.SendMessageAsync(TestBytesBuffer.Create(1, 2, 3), TestBytesBuffer.Create(), new SendingMetadata
+            await outbox.SendMessageAsync(testAddress, TestBytesBuffer.Create(), new SendingMetadata
             {
                 Delay = TimeSpan.FromSeconds(1),
                 Ttl = TimeSpan.FromMilliseconds(500)

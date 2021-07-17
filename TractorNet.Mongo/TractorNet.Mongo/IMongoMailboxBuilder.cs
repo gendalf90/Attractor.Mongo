@@ -11,5 +11,7 @@ namespace TractorNet.Mongo
         void UseMessageProcessingTimeout(TimeSpan time);
 
         void UseReadTrottleTime(TimeSpan time);
+
+        void UseReadBatchSize(int size);
     }
 }

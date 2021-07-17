@@ -5,12 +5,21 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace TractorNet.Mongo.Implementation.Message
 {
-    internal sealed class Mailbox : IInbox, IAnonymousOutbox
+    internal sealed class Mailbox : IInbox, IAnonymousOutbox, IAsyncDisposable
     {
+        private static readonly string DefaultDatabaseName = "tractor";
+        private static readonly string DefaultCollectionName = "mailbox";
+        private static readonly TimeSpan DefaultReadTrottleTime = TimeSpan.FromMilliseconds(1);
+        private static readonly TimeSpan DefaultMessageProcessingTimeout = Timeout.InfiniteTimeSpan;
+        private static readonly int DefaultMessageReadingBatchSize = 1;
+
+        private readonly Channel<IProcessingMessage> readMessages = Channel.CreateUnbounded<IProcessingMessage>();
+
         private readonly IMongoCollection<MessageRecord> collection;
         private readonly IOptions<MailboxSettings> options;
         
@@ -25,26 +34,86 @@ namespace TractorNet.Mongo.Implementation.Message
         {
             while (true)
             {
-                var unlockTime = options.Value.MessageProcessingTimeout.HasValue
-                    ? DateTime.UtcNow + options.Value.MessageProcessingTimeout.Value
-                    : DateTime.MaxValue;
-                var filter = Builders<MessageRecord>.Filter.And(
-                    Builders<MessageRecord>.Filter.Lte(record => record.AvailableAt, DateTime.UtcNow),
-                    Builders<MessageRecord>.Filter.Lte(record => record.UnlockedAt, DateTime.UtcNow),
-                    Builders<MessageRecord>.Filter.Gt(record => record.ExpireAt, DateTime.UtcNow));
-                var update = Builders<MessageRecord>.Update.Set(record => record.UnlockedAt, unlockTime);
-                var findOptions = new FindOneAndUpdateOptions<MessageRecord, MessageRecord> { ReturnDocument = ReturnDocument.After };
-                var trottleTask = options.Value.ReadTrottleTime.HasValue
-                    ? Task.Delay(options.Value.ReadTrottleTime.Value, token)
-                    : Task.CompletedTask;
-                var findTask = collection.FindOneAndUpdateAsync(filter, update, findOptions, token);
+                token.ThrowIfCancellationRequested();
 
-                await Task.WhenAll(trottleTask, findTask);
-
-                if (findTask.Result != null)
+                if (readMessages.Reader.TryRead(out var message))
                 {
-                    yield return CreateProcessingMessage(findTask.Result);
+                    yield return message;
                 }
+                else
+                {
+                    await LoadBatchOfMessagesAsync();
+                }
+            }
+        }
+
+        private async ValueTask LoadBatchOfMessagesAsync()
+        {
+            var now = DateTime.UtcNow;
+            var lockToken = Guid.NewGuid();
+            var unlockTime = CalculateUnlockTime(now);
+            var lockFilter = Builders<MessageRecord>.Filter.And(
+                Builders<MessageRecord>.Filter.Lte(record => record.AvailableAt, now),
+                Builders<MessageRecord>.Filter.Lte(record => record.UnlockedAt, now),
+                Builders<MessageRecord>.Filter.Gt(record => record.ExpireAt, now));
+            var lockUpdate = Builders<MessageRecord>.Update
+                .Set(record => record.UnlockedAt, unlockTime)
+                .Set(record => record.LockToken, lockToken);
+            var readBatchSize = options.Value.MessagesReadingBatchSize ?? DefaultMessageReadingBatchSize;
+            var trottleTask = Task.Delay(options.Value.ReadTrottleTime ?? DefaultReadTrottleTime);
+
+            if (readBatchSize == DefaultMessageReadingBatchSize)
+            {
+                var findOptions = new FindOneAndUpdateOptions<MessageRecord, MessageRecord> { ReturnDocument = ReturnDocument.After };
+
+                var record = await collection.FindOneAndUpdateAsync(lockFilter, lockUpdate, new FindOneAndUpdateOptions<MessageRecord>
+                {
+                    ReturnDocument = ReturnDocument.After
+                });
+
+                if (record != null)
+                {
+                    await TryAddMessageAsync(CreateProcessingMessage(record));
+                }
+            }
+            else
+            {
+                var lockTokenFilter = Builders<MessageRecord>.Filter.Eq(record => record.LockToken, lockToken);
+                var bulkUpdates = new List<WriteModel<MessageRecord>>(readBatchSize);
+
+                for (int i = 0; i < readBatchSize; i++)
+                {
+                    bulkUpdates.Add(new UpdateOneModel<MessageRecord>(lockFilter, lockUpdate));
+                }
+
+                await collection.BulkWriteAsync(bulkUpdates, new BulkWriteOptions
+                {
+                    IsOrdered = false
+                });
+
+                var records = await collection.Find(lockTokenFilter).ToListAsync();
+
+                foreach (var record in records)
+                {
+                    await TryAddMessageAsync(CreateProcessingMessage(record));
+                }
+            }
+
+            await trottleTask;
+        }
+
+        private DateTime CalculateUnlockTime(DateTime now)
+        {
+            var timeout = options.Value.MessageProcessingTimeout ?? DefaultMessageProcessingTimeout;
+
+            return timeout == Timeout.InfiniteTimeSpan ? DateTime.MaxValue : now + timeout;
+        }
+
+        private async ValueTask TryAddMessageAsync(IProcessingMessage message)
+        {
+            if (!readMessages.Writer.TryWrite(message))
+            {
+                await message.DisposeAsync();
             }
         }
 
@@ -102,8 +171,8 @@ namespace TractorNet.Mongo.Implementation.Message
         {
             var indexBuilder = Builders<MessageRecord>.IndexKeys;
             var collection = new MongoClient(settings.ClientSettings)
-                .GetDatabase(settings.DatabaseName)
-                .GetCollection<MessageRecord>(settings.CollectionName);
+                .GetDatabase(settings.DatabaseName ?? DefaultDatabaseName)
+                .GetCollection<MessageRecord>(settings.CollectionName ?? DefaultCollectionName);
 
             collection.Indexes.CreateOne(new CreateIndexModel<MessageRecord>(
                 indexBuilder.Ascending(record => record.ExpireAt),
@@ -127,7 +196,24 @@ namespace TractorNet.Mongo.Implementation.Message
                     Background = true
                 }));
 
+            collection.Indexes.CreateOne(new CreateIndexModel<MessageRecord>(
+                indexBuilder.Ascending(record => record.LockToken),
+                new CreateIndexOptions
+                {
+                    Background = true
+                }));
+
             return collection;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            readMessages.Writer.TryComplete();
+
+            while (readMessages.Reader.TryRead(out var message))
+            {
+                await message.DisposeAsync();
+            }
         }
 
         private class ReceivedMessageFeature : IReceivedMessageFeature
@@ -143,14 +229,18 @@ namespace TractorNet.Mongo.Implementation.Message
 
             public async ValueTask ConsumeAsync(CancellationToken token = default)
             {
-                var filter = Builders<MessageRecord>.Filter.Eq(record => record.Id, messageRecord.Id);
+                var filter = Builders<MessageRecord>.Filter.And(
+                    Builders<MessageRecord>.Filter.Eq(record => record.Id, messageRecord.Id),
+                    Builders<MessageRecord>.Filter.Eq(record => record.LockToken, messageRecord.LockToken));
 
                 await mailbox.collection.DeleteOneAsync(filter, token);
             }
 
             public async ValueTask DelayAsync(TimeSpan time, CancellationToken token = default)
             {
-                var filter = Builders<MessageRecord>.Filter.Eq(record => record.Id, messageRecord.Id);
+                var filter = Builders<MessageRecord>.Filter.And(
+                    Builders<MessageRecord>.Filter.Eq(record => record.Id, messageRecord.Id),
+                    Builders<MessageRecord>.Filter.Eq(record => record.LockToken, messageRecord.LockToken));
                 var update = Builders<MessageRecord>.Update.Set(record => record.AvailableAt, DateTime.UtcNow + time);
 
                 await mailbox.collection.UpdateOneAsync(filter, update, null, token);
@@ -158,7 +248,10 @@ namespace TractorNet.Mongo.Implementation.Message
 
             public async ValueTask ExpireAsync(TimeSpan time, CancellationToken token = default)
             {
-                var filter = Builders<MessageRecord>.Filter.Eq(record => record.Id, messageRecord.Id);
+                var filter = Builders<MessageRecord>.Filter.And(
+                    Builders<MessageRecord>.Filter.Eq(record => record.Id, messageRecord.Id),
+                    Builders<MessageRecord>.Filter.Eq(record => record.LockToken, messageRecord.LockToken),
+                    Builders<MessageRecord>.Filter.Gt(record => record.ExpireAt, DateTime.UtcNow));
                 var update = Builders<MessageRecord>.Update.Set(record => record.ExpireAt, DateTime.UtcNow + time);
 
                 await mailbox.collection.UpdateOneAsync(filter, update, null, token);
@@ -254,8 +347,12 @@ namespace TractorNet.Mongo.Implementation.Message
 
             public async ValueTask DisposeAsync()
             {
-                var filter = Builders<MessageRecord>.Filter.Eq(record => record.Id, record.Id);
-                var update = Builders<MessageRecord>.Update.Set(record => record.UnlockedAt, DateTime.MinValue);
+                var filter = Builders<MessageRecord>.Filter.And(
+                    Builders<MessageRecord>.Filter.Eq(record => record.Id, record.Id),
+                    Builders<MessageRecord>.Filter.Eq(record => record.LockToken, record.LockToken));
+                var update = Builders<MessageRecord>.Update
+                    .Set(record => record.UnlockedAt, DateTime.MinValue)
+                    .Set(record => record.LockToken, Guid.Empty);
 
                 await mailbox.collection.UpdateOneAsync(filter, update);
             }
