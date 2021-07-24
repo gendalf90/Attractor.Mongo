@@ -135,7 +135,7 @@ namespace TractorNet.Mongo.Tests.UseCases
         {
             // Arrange
             var testAddress = TestBytesBuffer.Generate();
-            var resultsChannel = Channel.CreateUnbounded<IMessage>();
+            var resultsChannel = Channel.CreateUnbounded<IReceivedMessageFeature>();
 
             using var host = new HostBuilder()
                 .ConfigureServices(services =>

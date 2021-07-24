@@ -15,7 +15,7 @@ namespace TractorNet.Mongo.Tests.UseCases
         {
             // Arrange
             var testAddress = TestBytesBuffer.Generate();
-            var resultChannel = Channel.CreateUnbounded<IMessage>();
+            var resultChannel = Channel.CreateUnbounded<IReceivedMessageFeature>();
 
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
@@ -55,7 +55,7 @@ namespace TractorNet.Mongo.Tests.UseCases
 
             var outbox = host.Services.GetRequiredService<IAnonymousOutbox>();
 
-            var resultsMessages = new List<IMessage>();
+            var resultsMessages = new List<IReceivedMessageFeature>();
 
             for (int i = 0; i < 3; i++)
             {

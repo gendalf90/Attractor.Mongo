@@ -22,14 +22,14 @@ namespace TractorNet.Mongo.Implementation.Address
             this.options = options;
         }
 
-        public async ValueTask<TryResult<IAsyncDisposable>> TryUseAddressAsync(IAddress address, CancellationToken token = default)
+        public async ValueTask<TryResult<IAsyncDisposable>> TryUseAddressAsync(IProcessingMessage message, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
 
             var now = DateTime.UtcNow;
             var expirationTime = CalculateExpirationTime(now);
             var filter = Builders<AddressRecord>.Filter.And(
-                Builders<AddressRecord>.Filter.Eq(record => record.Address, address.GetBytes().ToArray()),
+                Builders<AddressRecord>.Filter.Eq(record => record.Address, message.GetBytes().ToArray()),
                 Builders<AddressRecord>.Filter.Gt(record => record.ExpireAt, now));
             var update = Builders<AddressRecord>.Update.SetOnInsert(record => record.ExpireAt, expirationTime);
 
@@ -38,9 +38,16 @@ namespace TractorNet.Mongo.Implementation.Address
                 IsUpsert = true
             });
 
-            return result.MatchedCount == 0
-                ? new TrueResult<IAsyncDisposable>(new AddressRegistrationDisposable(this, result))
-                : new FalseResult<IAsyncDisposable>();
+            if (result.MatchedCount > 0)
+            {
+                return new FalseResult<IAsyncDisposable>();
+            }
+
+            var registration = new AddressRegistration(this, result);
+
+            message.SetFeature<IMongoAddressFeature>(registration);
+
+            return new TrueResult<IAsyncDisposable>(registration);
         }
 
         private DateTime CalculateExpirationTime(DateTime now)
@@ -75,12 +82,12 @@ namespace TractorNet.Mongo.Implementation.Address
             return collection;
         }
 
-        private class AddressRegistrationDisposable : IAsyncDisposable
+        private class AddressRegistration : IMongoAddressFeature, IAsyncDisposable
         {
             private readonly AddressBook addressBook;
             private readonly UpdateResult updateResult;
 
-            public AddressRegistrationDisposable(AddressBook addressBook, UpdateResult updateResult)
+            public AddressRegistration(AddressBook addressBook, UpdateResult updateResult)
             {
                 this.addressBook = addressBook;
                 this.updateResult = updateResult;
@@ -91,6 +98,18 @@ namespace TractorNet.Mongo.Implementation.Address
                 var filter = Builders<AddressRecord>.Filter.Eq(record => record.Id, updateResult.UpsertedId.AsObjectId);
 
                 await addressBook.collection.DeleteOneAsync(filter);
+            }
+
+            public async ValueTask ProlongAddressUsingAsync(CancellationToken token = default)
+            {
+                var now = DateTime.UtcNow;
+                var expirationTime = addressBook.CalculateExpirationTime(now);
+                var filter = Builders<AddressRecord>.Filter.And(
+                    Builders<AddressRecord>.Filter.Eq(record => record.Id, updateResult.UpsertedId.AsObjectId),
+                    Builders<AddressRecord>.Filter.Gt(record => record.ExpireAt, now));
+                var update = Builders<AddressRecord>.Update.Set(record => record.ExpireAt, expirationTime);
+
+                await addressBook.collection.UpdateOneAsync(filter, update, null, token);
             }
         }
     }
