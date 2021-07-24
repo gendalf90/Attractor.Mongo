@@ -24,26 +24,44 @@ namespace TractorNet.Mongo.Implementation.Address
 
         public async ValueTask<TryResult<IAsyncDisposable>> TryUseAddressAsync(IProcessingMessage message, CancellationToken token = default)
         {
+            if (message == null)
+            {
+                throw new ArgumentNullException(nameof(message));
+            }
+
             token.ThrowIfCancellationRequested();
 
             var now = DateTime.UtcNow;
+            var usingToken = Guid.NewGuid();
+            var addressBytes = message.GetBytes().ToArray();
             var expirationTime = CalculateExpirationTime(now);
-            var filter = Builders<AddressRecord>.Filter.And(
-                Builders<AddressRecord>.Filter.Eq(record => record.Address, message.GetBytes().ToArray()),
-                Builders<AddressRecord>.Filter.Gt(record => record.ExpireAt, now));
-            var update = Builders<AddressRecord>.Update.SetOnInsert(record => record.ExpireAt, expirationTime);
-
-            var result = await collection.UpdateOneAsync(filter, update, new UpdateOptions
+            var expirationFilter = Builders<AddressRecord>.Filter.And(
+                Builders<AddressRecord>.Filter.Eq(record => record.Address, addressBytes),
+                Builders<AddressRecord>.Filter.Lt(record => record.ExpireAt, now));
+            var expirationUpdate = Builders<AddressRecord>.Update
+                .Set(record => record.ExpireAt, expirationTime)
+                .Set(record => record.UsingToken, usingToken);
+            var insertingFilter = Builders<AddressRecord>.Filter.Eq(record => record.Address, addressBytes);
+            var insertingUpdate = Builders<AddressRecord>.Update
+                .SetOnInsert(record => record.ExpireAt, expirationTime)
+                .SetOnInsert(record => record.UsingToken, usingToken);
+            var bulkUpdates = new WriteModel<AddressRecord>[]
             {
-                IsUpsert = true
+                new UpdateOneModel<AddressRecord>(expirationFilter, expirationUpdate),
+                new UpdateOneModel<AddressRecord>(insertingFilter, insertingUpdate) { IsUpsert = true }
+            };
+
+            var result = await collection.BulkWriteAsync(bulkUpdates, new BulkWriteOptions
+            {
+                IsOrdered = false
             });
 
-            if (result.MatchedCount > 0)
+            if (result.ModifiedCount == 0 && result.MatchedCount > 0)
             {
                 return new FalseResult<IAsyncDisposable>();
             }
 
-            var registration = new AddressRegistration(this, result);
+            var registration = new AddressRegistration(this, usingToken);
 
             message.SetFeature<IMongoAddressFeature>(registration);
 
@@ -73,7 +91,7 @@ namespace TractorNet.Mongo.Implementation.Address
                 }));
 
             collection.Indexes.CreateOne(new CreateIndexModel<AddressRecord>(
-                indexBuilder.Ascending(record => record.Address),
+                indexBuilder.Ascending(record => record.UsingToken),
                 new CreateIndexOptions
                 {
                     Background = true
@@ -85,28 +103,25 @@ namespace TractorNet.Mongo.Implementation.Address
         private class AddressRegistration : IMongoAddressFeature, IAsyncDisposable
         {
             private readonly AddressBook addressBook;
-            private readonly UpdateResult updateResult;
+            private readonly Guid usingToken;
 
-            public AddressRegistration(AddressBook addressBook, UpdateResult updateResult)
+            public AddressRegistration(AddressBook addressBook, Guid usingToken)
             {
                 this.addressBook = addressBook;
-                this.updateResult = updateResult;
+                this.usingToken = usingToken;
             }
 
             public async ValueTask DisposeAsync()
             {
-                var filter = Builders<AddressRecord>.Filter.Eq(record => record.Id, updateResult.UpsertedId.AsObjectId);
+                var filter = Builders<AddressRecord>.Filter.Eq(record => record.UsingToken, usingToken);
 
                 await addressBook.collection.DeleteOneAsync(filter);
             }
 
             public async ValueTask ProlongAddressUsingAsync(CancellationToken token = default)
             {
-                var now = DateTime.UtcNow;
-                var expirationTime = addressBook.CalculateExpirationTime(now);
-                var filter = Builders<AddressRecord>.Filter.And(
-                    Builders<AddressRecord>.Filter.Eq(record => record.Id, updateResult.UpsertedId.AsObjectId),
-                    Builders<AddressRecord>.Filter.Gt(record => record.ExpireAt, now));
+                var expirationTime = addressBook.CalculateExpirationTime(DateTime.UtcNow);
+                var filter = Builders<AddressRecord>.Filter.Eq(record => record.UsingToken, usingToken);
                 var update = Builders<AddressRecord>.Update.Set(record => record.ExpireAt, expirationTime);
 
                 await addressBook.collection.UpdateOneAsync(filter, update, null, token);

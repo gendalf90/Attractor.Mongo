@@ -3,10 +3,11 @@ using MongoDB.Driver;
 using System;
 using TractorNet.Mongo.Implementation.Address;
 using TractorNet.Mongo.Implementation.Message;
+using TractorNet.Mongo.Implementation.State;
 
 namespace TractorNet.Mongo.Implementation.Factory
 {
-    internal sealed class MongoBuilder : IMongoAddressBookBuilder, IMongoMailboxBuilder
+    internal sealed class MongoBuilder : IMongoAddressBookBuilder, IMongoMailboxBuilder, IMongoStateBuilder
     {
         private readonly IServiceCollection services;
         private readonly MongoClientSettings mongoClientSettings;
@@ -77,6 +78,32 @@ namespace TractorNet.Mongo.Implementation.Factory
             });
         }
 
+        void IMongoStateBuilder.UseCollectionName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException(nameof(name));
+            }
+
+            services.Configure<StateStorageSettings>(settings =>
+            {
+                settings.CollectionName = name;
+            });
+        }
+
+        void IMongoStateBuilder.UseDatabaseName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException(nameof(name));
+            }
+
+            services.Configure<StateStorageSettings>(settings =>
+            {
+                settings.DatabaseName = name;
+            });
+        }
+
         void IMongoMailboxBuilder.UseMessageProcessingTimeout(TimeSpan time)
         {
             services.Configure<MailboxSettings>(settings =>
@@ -126,6 +153,16 @@ namespace TractorNet.Mongo.Implementation.Factory
             services.AddSingleton<Mailbox>();
             services.AddSingleton<IInbox>(provider => provider.GetRequiredService<Mailbox>());
             services.AddSingleton<IAnonymousOutbox>(provider => provider.GetRequiredService<Mailbox>());
+        }
+
+        public void BuildState()
+        {
+            services.Configure<StateStorageSettings>(settings =>
+            {
+                settings.ClientSettings = mongoClientSettings;
+            });
+
+            services.AddSingleton<IStateStorage, StateStorage>();
         }
     }
 }
