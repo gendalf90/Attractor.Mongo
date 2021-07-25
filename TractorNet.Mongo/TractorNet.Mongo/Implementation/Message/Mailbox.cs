@@ -42,7 +42,7 @@ namespace TractorNet.Mongo.Implementation.Message
                 }
                 else
                 {
-                    await LoadBatchOfMessagesAsync();
+                    await RunWithTrottlingAsync(LoadBatchOfMessagesAsync);
                 }
             }
         }
@@ -53,14 +53,13 @@ namespace TractorNet.Mongo.Implementation.Message
             var lockToken = Guid.NewGuid();
             var unlockTime = CalculateUnlockTime(now);
             var lockFilter = Builders<MessageRecord>.Filter.And(
-                Builders<MessageRecord>.Filter.Lte(record => record.AvailableAt, now),
-                Builders<MessageRecord>.Filter.Lte(record => record.UnlockedAt, now),
+                Builders<MessageRecord>.Filter.Lt(record => record.AvailableAt, now),
+                Builders<MessageRecord>.Filter.Lt(record => record.UnlockedAt, now),
                 Builders<MessageRecord>.Filter.Gt(record => record.ExpireAt, now));
             var lockUpdate = Builders<MessageRecord>.Update
                 .Set(record => record.UnlockedAt, unlockTime)
                 .Set(record => record.LockToken, lockToken);
             var readBatchSize = options.Value.MessagesReadingBatchSize ?? DefaultMessageReadingBatchSize;
-            var trottleTask = Task.Delay(options.Value.ReadTrottleTime ?? DefaultReadTrottleTime);
 
             if (readBatchSize == DefaultMessageReadingBatchSize)
             {
@@ -84,10 +83,15 @@ namespace TractorNet.Mongo.Implementation.Message
                     bulkUpdates.Add(new UpdateOneModel<MessageRecord>(lockFilter, lockUpdate));
                 }
 
-                await collection.BulkWriteAsync(bulkUpdates, new BulkWriteOptions
+                var result = await collection.BulkWriteAsync(bulkUpdates, new BulkWriteOptions
                 {
                     IsOrdered = false
                 });
+
+                if (result.ModifiedCount == 0)
+                {
+                    return;
+                }
 
                 var records = await collection.Find(lockTokenFilter).ToListAsync();
 
@@ -96,8 +100,20 @@ namespace TractorNet.Mongo.Implementation.Message
                     await TryAddMessageAsync(CreateProcessingMessage(record));
                 }
             }
+        }
 
-            await trottleTask;
+        private async ValueTask RunWithTrottlingAsync(Func<ValueTask> action)
+        {
+            var trottleTask = Task.Delay(options.Value.ReadTrottleTime ?? DefaultReadTrottleTime);
+
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                await trottleTask;
+            }
         }
 
         private DateTime CalculateUnlockTime(DateTime now)
