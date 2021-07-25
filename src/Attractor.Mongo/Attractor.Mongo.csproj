@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Attractor" Version="1.0.0-alpha.8" />
+    <PackageReference Include="Attractor" Version="1.0.0-alpha.9" />
     <PackageReference Include="MongoDB.Driver" Version="2.13.0" />
   </ItemGroup>
 

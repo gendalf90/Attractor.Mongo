@@ -21,7 +21,7 @@ namespace Attractor.Mongo.Tests.UseCases
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractorServer();
+                    services.AddAttractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         var sender = context.Metadata.GetFeature<ISenderFeature>();
@@ -72,7 +72,7 @@ namespace Attractor.Mongo.Tests.UseCases
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractorServer();
+                    services.AddAttractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         var sender = context.Metadata.GetFeature<ISenderFeature>();

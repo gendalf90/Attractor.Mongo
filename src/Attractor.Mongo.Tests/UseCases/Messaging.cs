@@ -26,7 +26,7 @@ namespace Attractor.Mongo.Tests.UseCases
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractorServer();
+                    services.AddAttractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         await resultChannel.Writer.WriteAsync(Interlocked.Increment(ref currentRunningNumber));
@@ -85,7 +85,7 @@ namespace Attractor.Mongo.Tests.UseCases
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractorServer();
+                    services.AddAttractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         await resultsChannel.Writer.WriteAsync(DateTime.UtcNow);
@@ -140,7 +140,7 @@ namespace Attractor.Mongo.Tests.UseCases
             using var host = new HostBuilder()
                 .ConfigureServices(services =>
                 {
-                    services.AddTractorServer();
+                    services.AddAttractorServer();
                     services.RegisterActor(async (context, token) =>
                     {
                         var feature = context.Metadata.GetFeature<IReceivedMessageFeature>();
