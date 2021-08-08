@@ -78,6 +78,15 @@ namespace Attractor.Mongo.Implementation.State
 
                 currentRecord.Data = stateBytes;
             }
+
+            public async ValueTask ClearAsync(CancellationToken token = default)
+            {
+                var filter = Builders<StateRecord>.Filter.Eq(record => record.Address, currentRecord.Address);
+
+                await storage.collection.DeleteOneAsync(filter, token);
+
+                currentRecord.Data = Array.Empty<byte>();
+            }
         }
     }
 }

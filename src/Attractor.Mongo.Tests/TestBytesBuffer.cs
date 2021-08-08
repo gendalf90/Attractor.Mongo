@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Attractor.Mongo.Tests
 {
-    public class TestBytesBuffer : IAddress, IPayload, IAddressPolicy
+    public class TestBytesBuffer : IAddress, IPayload, IState, IAddressPolicy
     {
         public readonly ReadOnlyMemory<byte> bytes;
 
@@ -50,6 +50,11 @@ namespace Attractor.Mongo.Tests
             return new TestBytesBuffer(payload.GetBytes());
         }
 
+        public static TestBytesBuffer CreateState(IState state)
+        {
+            return new TestBytesBuffer(state.GetBytes());
+        }
+
         public static TestBytesBuffer CreateString(string str)
         {
             return new TestBytesBuffer(Encoding.UTF8.GetBytes(str));
@@ -63,6 +68,11 @@ namespace Attractor.Mongo.Tests
         public static string GetString(IPayload payload)
         {
             return Encoding.UTF8.GetString(payload.GetBytes().Span);
+        }
+
+        public static string GetString(IState state)
+        {
+            return Encoding.UTF8.GetString(state.GetBytes().Span);
         }
 
         public static TestBytesBuffer Generate()
