@@ -22,7 +22,7 @@ namespace Attractor.Mongo.Tests
 
         public ValueTask<bool> IsMatchAsync(IAddress address, CancellationToken token = default)
         {
-            return ValueTask.FromResult(IsAddress(address));
+            return new ValueTask<bool>(Task.FromResult(IsAddress(address)));
         }
 
         public bool IsAddress(IAddress address)
