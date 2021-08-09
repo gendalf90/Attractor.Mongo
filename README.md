@@ -1,8 +1,8 @@
-# TractorNet.Mongo
+# Attractor.Mongo
  
 [![NuGet](https://buildstats.info/nuget/Attractor.Mongo?packageVersion=1.0.0-alpha.2&includePreReleases=true)](https://www.nuget.org/packages/Attractor.Mongo/1.0.0-alpha.2)
 
-Actor model system implementation on .NET
+Mongo adapter for Attractor system
 
 ### Getting started
 
